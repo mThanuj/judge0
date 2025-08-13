@@ -1,0 +1,81 @@
+# render.yaml
+# Blueprint for deploying Judge0 on Render.
+
+# This blueprint defines four services:
+# 1. A PostgreSQL database.
+# 2. A Redis instance for queuing.
+# 3. A Web Service for the Judge0 API.
+# 4. A Background Worker to process submissions.
+
+services:
+  # 1. PostgreSQL Database
+  - type: psql
+    name: judge0-db
+    plan: free # Change to a paid plan for production use
+    ipAllowList: [] # Allows all services in your account to connect
+
+  # 2. Redis Instance
+  - type: redis
+    name: judge0-redis
+    plan: free # Change to a paid plan for production use
+    ipAllowList: [] # Allows all services in your account to connect
+
+  # 3. Judge0 API (Web Service)
+  - type: web
+    name: judge0-api
+    env: ruby
+    plan: free # IMPORTANT: The free plan sleeps after 15 mins of inactivity. Use a paid plan for production.
+    repo: https://github.com/mThanuj/judge0 # <-- IMPORTANT: REPLACE with your username
+    branch: master # Or 'main', depending on your repo's default branch
+    healthCheckPath: /
+    envVars:
+      - key: DATABASE_URL
+        fromService:
+          type: psql
+          name: judge0-db
+          property: connectionString
+      - key: REDIS_URL
+        fromService:
+          type: redis
+          name: judge0-redis
+          property: connectionString
+      - key: RAILS_ENV
+        value: production
+      - key: RAILS_LOG_TO_STDOUT
+        value: "true"
+      - key: RAILS_SERVE_STATIC_FILES
+        value: "true"
+      - key: SECRET_KEY_BASE
+        generateValue: true # Render will generate a secure secret key
+    buildCommand: "./bin/bundle install"
+    startCommand: "./bin/bundle exec rake db:prepare && ./bin/bundle exec rails server"
+
+  # 4. Judge0 Worker (Background Process)
+  - type: worker
+    name: judge0-worker
+    env: ruby
+    plan: free # Use a paid plan for faster processing and no restarts
+    repo: https://github.com/mThanuj/judge0 # <-- IMPORTANT: REPLACE with your username
+    branch: master # Or 'main'
+    envVars:
+      - key: DATABASE_URL
+        fromService:
+          type: psql
+          name: judge0-db
+          property: connectionString
+      - key: REDIS_URL
+        fromService:
+          type: redis
+          name: judge0-redis
+          property: connectionString
+      - key: RAILS_ENV
+        value: production
+      - key: RAILS_LOG_TO_STDOUT
+        value: "true"
+      - key: SECRET_KEY_BASE
+        fromService:
+          type: web
+          name: judge0-api
+          envVarKey: SECRET_KEY_BASE
+    buildCommand: "./bin/bundle install"
+    startCommand: "./bin/bundle exec rake judge0:work"
